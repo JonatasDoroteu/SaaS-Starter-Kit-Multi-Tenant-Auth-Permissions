@@ -1,6 +1,6 @@
 # SaaS Starter Kit — Multi-Tenant Auth & Permissions
 
-![CI](https://github.com/JonatasDoroteu/-SaaS-Starter-Kit-Multi-Tenant-Auth-Permissions/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/JonatasDoroteu/SaaS-Starter-Kit-Multi-Tenant-Auth-Permissions/actions/workflows/ci.yml/badge.svg)
 
 Um starter para aplicações SaaS multi-tenant, com foco em autenticação, isolamento de dados entre organizações, controle de acesso baseado em papéis (RBAC), cotas de uso por plano e emissão segura de chaves de API.
 
@@ -61,7 +61,7 @@ O objetivo é construir uma base sólida usando conceitos presentes em aplicaç�
   - aceite de convites
   - emissão e revogação de API Keys
 - Schema do banco gerenciado inteiramente pelo **Alembic** — o servidor não recria mais as tabelas automaticamente no boot (uma decisão de segurança: evita perda acidental de dados a cada restart)
-- **Integração contínua (CI)** — workflow do GitHub Actions que roda a suíte de testes automaticamente a cada `push` e `pull request` na branch `main`, aplicando as migrations via Alembic antes dos testes
+- **Integração contínua (CI)** — workflow do GitHub Actions que sobe um service **PostgreSQL 16**, aplica as migrations via Alembic e roda a suíte de testes com `asyncpg` a cada `push` e `pull request` na `main`
 - **Deploy em produção** — API no Render, PostgreSQL gerenciado pelo Supabase, com pool de conexões configurado para ambiente serverless (`NullPool`)
 - **Role de aplicação dedicada** — o backend deve conectar usando `saas_app`, uma role sem `SUPERUSER` e sem `BYPASSRLS`; migrations continuam sendo executadas com a role administrativa
 - **Rate limiting por API Key** — requisições com `X-API-Key` são validadas contra o hash persistido e limitadas a 100 requisições por minuto, usando Redis para contagem distribuída
@@ -85,9 +85,9 @@ Os testes validam os principais fluxos implementados, incluindo:
 - bloqueio de uso ao atingir a cota mensal
 - ciclo completo de API Keys, incluindo segredo de uso único, hash, revogação e isolamento entre organizações
 
-A cada `push` ou `pull request` para `main`, esses mesmos testes rodam automaticamente via GitHub Actions — o badge no topo deste README reflete o status em tempo real.
+A cada `push` ou `pull request` para `main`, esses testes rodam no GitHub Actions contra um PostgreSQL 16, com as migrations aplicadas antes. Localmente, a suíte continua usando SQLite por padrão; `TEST_DATABASE_URL` permite apontar para um Postgres local, e o `conftest.py` recusa hosts remotos (os testes apagam dados).
 
-O teste manual de RLS usando `SET ROLE saas_app` ainda precisa ser executado no Supabase. A suíte local usa SQLite e, portanto, não valida as policies PostgreSQL nem a role de aplicação.
+**Limitação:** o service do CI usa um usuário superuser, que ignora RLS. Portanto, o CI valida testes e migrations em Postgres, mas **não valida as policies de RLS**. O teste manual com `SET ROLE saas_app` no Supabase continua pendente.
 
 Para validar em um ambiente seguro, conecte-se ao Supabase com uma role administrativa, execute `SET ROLE saas_app` e confirme que duas transações com valores diferentes de `app.current_org_id` nunca conseguem consultar ou alterar dados do tenant oposto. Depois, verifique novamente `rolsuper = false` e `rolbypassrls = false` para `saas_app`.
 
@@ -102,7 +102,7 @@ Para validar em um ambiente seguro, conecte-se ao Supabase com uma role administ
 - JWT (`python-jose`)
 - Pytest
 - Alembic (migrations — única fonte de verdade do schema)
-- PostgreSQL (produção, via Supabase) / SQLite (desenvolvimento local)
+- PostgreSQL (produção, via Supabase, e CI) / SQLite (desenvolvimento local)
 
 **Frontend**
 - React
@@ -112,39 +112,40 @@ Para validar em um ambiente seguro, conecte-se ao Supabase com uma role administ
 **Infraestrutura**
 - Render (hospedagem da API)
 - Supabase (PostgreSQL gerenciado)
-- GitHub Actions (CI — testes automatizados a cada push/PR)
+- GitHub Actions (CI — testes e migrations em PostgreSQL 16 a cada push/PR)
 
 ---
 
 ## Estrutura do projeto
 
+```text
 .
 ├── .github/
-│ └── workflows/
-│ └── ci.yml # pipeline de CI (testes automatizados)
+│   └── workflows/
+│       └── ci.yml              # pipeline de CI (PostgreSQL + testes automatizados)
 ├── backend/
-│ ├── app/
-│ │ ├── api/
-│ │ │ ├── deps.py # autenticação compartilhada (get_authenticated_email)
-│ │ │ └── routes/ # endpoints (auth, organizations, invites, usage, api_keys, health)
-│ │ ├── core/ # config e segurança (JWT, refresh token, API keys, hashing)
-│ │ ├── models/ # models SQLAlchemy (User, Organization, Membership, Invite, UsageRecord, ApiKey, ...)
-│ │ ├── schemas/ # schemas Pydantic
-│ │ ├── services/ # regras de negócio (quota, state) e acesso a dados
-│ │ └── main.py
-│ ├── alembic/ # migrations (fonte única de verdade do schema)
-│ ├── tests/
-│ └── requirements.txt
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── deps.py         # autenticação compartilhada (get_authenticated_email)
+│   │   │   └── routes/         # endpoints (auth, organizations, invites, usage, api_keys, health)
+│   │   ├── core/               # config e segurança (JWT, refresh token, API keys, hashing)
+│   │   ├── models/             # models SQLAlchemy (User, Organization, Membership, Invite, UsageRecord, ApiKey, ...)
+│   │   ├── schemas/            # schemas Pydantic
+│   │   ├── services/           # regras de negócio (quota, state) e acesso a dados
+│   │   └── main.py
+│   ├── alembic/                # migrations (fonte única de verdade do schema)
+│   ├── tests/
+│   └── requirements.txt
 ├── frontend/
-│ ├── src/
-│ │ ├── App.jsx
-│ │ ├── UsagePanel.jsx # painel de cotas de uso
-│ │ ├── ApiKeysPanel.jsx # painel de emissão/revogação de API Keys
-│ │ └── styles.css
-│ ├── index.html
-│ └── package.json
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── UsagePanel.jsx      # painel de cotas de uso
+│   │   ├── ApiKeysPanel.jsx    # painel de emissão/revogação de API Keys
+│   │   └── styles.css
+│   ├── index.html
+│   └── package.json
 └── docker-compose.yml
-
+```
 
 ---
 
@@ -216,7 +217,7 @@ O header `X-API-Key` habilita a validação e o rate limiting da chave. Os endpo
 
 Execute [`backend/supabase_app_role.sql`](backend/supabase_app_role.sql) uma vez no SQL Editor do Supabase, substituindo o placeholder por uma senha aleatória forte. Depois, configure `DATABASE_URL` do backend com o usuário `saas_app`. Não use `postgres`, `service_role` ou outra role com `BYPASSRLS` no backend.
 
-As migrations (`alembic upgrade head`) devem continuar rodando com a role administrativa que é dona do schema. A aplicação usa `SET LOCAL`/`set_config(..., true)` dentro da transação; portanto, o contexto `app.current_org_id` não é reaproveitado entre requisições.
+As migrations (`alembic upgrade head`) devem continuar rodando com a role administrativa que é dona do schema. A aplicação usa `set_config('app.current_org_id', ..., true)` dentro da transação; portanto, o contexto `app.current_org_id` não é reaproveitado entre requisições.
 
 ### Testes
 
@@ -225,15 +226,18 @@ cd backend
 pytest -q
 ```
 
+Por padrão, os testes usam SQLite (`./test.db`). Para rodar contra um PostgreSQL local, defina `TEST_DATABASE_URL` (por exemplo, `postgresql+asyncpg://usuario:senha@localhost:5432/banco_de_teste`). Hosts remotos são recusados de propósito, porque a suíte apaga os dados das tabelas entre os testes.
+
 ### CI/CD
 
 O projeto conta com um workflow de integração contínua (`.github/workflows/ci.yml`) que, a cada `push` ou `pull request` na branch `main`:
 
-1. Faz checkout do código
-2. Configura o Python 3.11 com cache de dependências
-3. Instala as dependências do `backend/requirements.txt`
-4. Aplica as migrations com `alembic upgrade head`
-5. Roda a suíte de testes com `pytest -q`
+1. Sobe um service container **PostgreSQL 16** com healthcheck
+2. Faz checkout do código
+3. Configura o Python 3.11 com cache de dependências
+4. Instala as dependências do `backend/requirements.txt`
+5. Aplica as migrations com `alembic upgrade head` no PostgreSQL do CI
+6. Roda a suíte de testes com `pytest -q` (driver `asyncpg`)
 
 O workflow define `SECRET_KEY` como variável de ambiente exclusiva para o CI, já que esse campo é obrigatório e não tem valor default — uma decisão intencional para evitar que a aplicação suba, em qualquer ambiente, com uma chave de assinatura JWT previsível.
 
@@ -244,6 +248,7 @@ O workflow define `SECRET_KEY` como variável de ambiente exclusiva para o CI, j
 - [x] Migração para PostgreSQL em produção
 - [x] Deploy da API em produção (Render + Supabase)
 - [x] Pipeline de CI/CD com GitHub Actions
+- [x] CI rodando testes e migrations em PostgreSQL 16 (service container)
 - [ ] Validar RLS no Supabase com `SET ROLE saas_app` e teste manual de isolamento cross-tenant
 - [x] Expansão da cobertura de testes (incluindo o fluxo completo de API Keys)
 - [x] Configuração do deploy do frontend em produção
@@ -260,11 +265,12 @@ O workflow define `SECRET_KEY` como variável de ambiente exclusiva para o CI, j
 
 O projeto ainda está em desenvolvimento, mas já evoluiu para uma base próxima da arquitetura utilizada em aplicações SaaS reais, explorando conceitos como multi-tenancy, autenticação, autorização, cotas de uso por plano, emissão segura de credenciais e boas práticas de backend.
 
-Três decisões técnicas que valeram a pena destacar:
+Quatro decisões técnicas que valeram a pena destacar:
 
 - **Refresh token e API Keys não são JWT** — são valores aleatórios de alta entropia, persistidos apenas como hash. Isso permite revogação imediata (algo que um JWT sozinho não garante bem, já que é válido até expirar) e elimina o risco de um segredo em texto puro vazar do banco.
 - **O schema do banco é gerenciado só pelo Alembic** — numa versão anterior, o próprio app recriava as tabelas a cada subida do servidor, um atalho conveniente em desenvolvimento solo mas destrutivo em qualquer ambiente real. Corrigido para que toda mudança de schema passe por uma migração versionada.
 - **Pool de conexões assíncrono ajustado para ambiente serverless** — em produção, o engine usa `NullPool` em vez do pool padrão, evitando que conexões fiquem presas a um event loop que não existe mais entre requisições (um problema real de asyncio + SQLAlchemy async em plataformas como Render).
+- **CI no mesmo banco de produção** — ao trocar o SQLite pelo PostgreSQL no CI, a suíte expôs dois bugs que passavam despercebidos: `SET LOCAL` com parâmetro ligado (inválido no Postgres; corrigido com `set_config`) e datetime com fuso gravado em coluna sem fuso.
 
 ---
 
