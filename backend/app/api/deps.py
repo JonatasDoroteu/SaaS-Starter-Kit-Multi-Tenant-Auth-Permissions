@@ -38,8 +38,8 @@ async def get_authenticated_email(
 
     if x_organization_id is not None and session.bind.dialect.name == "postgresql":
         await session.execute(
-            text("SET LOCAL app.current_org_id = :org_id"),
-            {"org_id": x_organization_id},
+            text("SELECT set_config('app.current_org_id', :org_id, true)"),
+            {"org_id": str(x_organization_id)},
         )
 
     return user.email
