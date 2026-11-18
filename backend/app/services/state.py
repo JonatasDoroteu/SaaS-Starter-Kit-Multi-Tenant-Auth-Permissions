@@ -351,7 +351,7 @@ class SqlAlchemyStore:
                 return False
             if api_key.revoked_at is not None:
                 return True  # já revogada, idempotente
-            api_key.revoked_at = datetime.now(timezone.utc)
+            api_key.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
             session.add(
                 AuditEvent(
                     organization_id=organization_id,
