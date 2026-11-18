@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 # Precisa rodar ANTES de qualquer import de app.*, porque app/db.py monta o
 # engine do SQLAlchemy usando essa URL no momento do import. Assim, os
 # testes usam um banco totalmente separado do saas_starter.db que você usa
 # pra testar manualmente -- um nunca interfere no outro.
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+test_database_url = os.environ.get(
+    "TEST_DATABASE_URL",
+    "sqlite+aiosqlite:///./test.db",
+)
+parsed_database_url = urlsplit(test_database_url)
+if not parsed_database_url.scheme.startswith("sqlite") and parsed_database_url.hostname not in {
+    "localhost",
+    "127.0.0.1",
+}:
+    raise RuntimeError("TEST_DATABASE_URL must use SQLite or a local database host.")
+os.environ["DATABASE_URL"] = test_database_url
 
 import asyncio
 from pathlib import Path
